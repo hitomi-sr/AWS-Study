@@ -1,0 +1,259 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS-Study 
+
+# 課題提出用のテンプレート
+
+# VPC
+# Subnet
+# InternetGateway
+# RouteTable
+# SecurityGroup
+# EC2
+# RDS
+# DBSubnetGroup
+# ELB
+# ELBTargetGroup
+# ELBListener
+
+Resources:
+  # VPC
+  TestVPC: 
+    Type: AWS::EC2::VPC 
+    Properties: 
+      CidrBlock: 10.0.0.0/16
+      Tags: 
+        - Key: Name
+          Value: TEST-VPC
+
+  # Subnet
+  TestSubNet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref TestVPC
+      CidrBlock: 10.0.0.0/24
+      Tags:
+        - Key: Name
+          Value: TEST-SubNet1a
+
+  TestSubNet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref TestVPC
+      CidrBlock: 10.0.1.0/24
+      Tags:
+        - Key: Name
+          Value: TEST-SubNet1c
+
+  # InternetGateway
+  TestIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: TEST-IGW
+
+  # VPCGatewayAttachment
+  AttachGateway: 
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TestVPC
+      InternetGatewayId: !Ref TestIGW 
+
+  # RouteTable
+  TestRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: TEST-RouteTable1
+
+  TestRoute1: #外部に出るための...
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref TestRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TestIGW
+
+  # 各サブネットとルートテーブルを関連付け（パブリックサブネット化）
+  TestSubNetRoutTablAsso1: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestRouteTable1
+      SubnetId: !Ref TestSubNet1a
+  
+  TestSubNetRoutTablAsso2: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestRouteTable1
+      SubnetId: !Ref TestSubNet1c
+      
+  # ここまでがVPC
+
+  # SecurityGroup
+  TestSecurityGroupEC2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: TEST-SecurityGroupEC2
+      GroupDescription: TEST-SecurityGroupEC2
+      VpcId: !Ref TestVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp #HTTP
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+        - IpProtocol: tcp #SSH 現場だとNG 基本的にOPENにしない
+          CidrIp: 0.0.0.0/0
+          FromPort: 22
+          ToPort: 22
+        - IpProtocol: tcp #RDSあるのでなくてもOK
+          CidrIp: 0.0.0.0/0
+          FromPort: 8080
+          ToPort: 8080
+      SecurityGroupEgress: #アウトバウンド
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: TEST-SG-EC2
+
+  TestSecurityGroupRDS:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study RDS
+      VpcId: !Ref TestVPC
+      SecurityGroupIngress: #インバウンド
+        - IpProtocol: tcp
+          FromPort: 3306 #mysqlのデフォルトが3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref TestSecurityGroupEC2 #ここがミソ特定のSGに所属しているものから接続する方が汎用性高い
+      SecurityGroupEgress: #アウトバウンド
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: TEST-SG-RDS #13 だと aws-study-rds-sg
+
+  # EC2
+  TestEC2Instance: 
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub "resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+      InstanceType: t2.micro 
+      InstanceInitiatedShutdownBehavior: stop 
+      KeyName: aws-study-key #キーペア（作成済みのキーペアを指定）
+      Tenancy: default    
+      NetworkInterfaces:   
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref TestSubNet1a  
+          GroupSet:
+            - !Ref TestSecurityGroupEC2        
+      
+      BlockDeviceMappings:          #ストレージの設定
+        - DeviceName: /dev/xvda         #デバイス名
+          Ebs:
+            VolumeType: gp2         #ボリュームタイプ
+            DeleteOnTermination: true       #インスタンス終了時に削除するのか
+            VolumeSize: 10          #ディスクサイズ（GiB）
+      UserData: !Base64 |           #構築後に実行するコマンド #下はhostname 変更コマンド
+        sudo hostnamectl set-hostname TEST-LINUX-INSTANCE 
+      Tags:                 
+        - Key: Name
+          Value: TEST-EC2
+
+
+  EipTestServer: #Elastic IP アドレス作成
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref TestEC2Instance
+  
+  # RDS　
+  TestRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20 #容量GB
+      AllowMajorVersionUpgrade: false #デフォ。mysqlのEngineVersion　8.0.の部分。大きく変わるので
+      AutoMinorVersionUpgrade: true #41の部分。セキュリティーが上がるので積極的に
+      DBInstanceClass: db.t4g.micro
+      Port: 3306 #デフォ
+      StorageType: gp2 #13だとgp3 
+      BackupRetentionPeriod: 1 #18:29 保存日数
+      MasterUsername: root #rootがダメなケースはadminとか　アプリで使うUNPWに合わせる
+      MasterUserPassword: rootroot #すぐ捨てるので簡易なもの #簡単すぎると警告
+      PreferredBackupWindow: 15:00-16:00
+      PreferredMaintenanceWindow: sun:18:00-sun:19:00
+      DBName: awsstudy
+      Engine: mysql
+      EngineVersion: 8.0.41 #13は8.0.39
+      LicenseModel: general-public-license
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref TestSecurityGroupRDS
+      Tags:
+        - Key: Name
+          Value: TEST-RDS
+  
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Created from the RDS Management Console #あまり気にしなくていい
+      SubnetIds:
+        - !Ref TestSubNet1a
+        - !Ref TestSubNet1c
+
+  #ELB
+  TestELB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: TEST-ELB
+      SecurityGroups:
+        - !Ref TestSecurityGroupEC2
+      Subnets:
+        - !Ref TestSubNet1a
+        - !Ref TestSubNet1c
+      Tags:
+        - Key: Name
+          Value: TEST-ELB
+
+  TestELBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: TEST-ELB-TG
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref TestVPC
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: "/"
+      HealthCheckPort: "traffic-port"
+      HealthCheckIntervalSeconds: 10
+      Matcher:
+        HttpCode: 200
+      Tags:
+        - Key: Name
+          Value: TEST-ELB-TG
+      Targets:
+        - Id : !Ref TestEC2Instance
+          Port: 8080
+
+  TestELBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestELB
+      DefaultActions:
+        - TargetGroupArn: !Ref TestELBTargetGroup
+          Type: forward
+      Port: 80
+      Protocol: HTTP
+
+
+
+
+
+
+  
