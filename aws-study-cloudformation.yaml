@@ -4,10 +4,13 @@ Description: AWS-Study
 # 課題提出用のテンプレート
 
 # VPC
-# Subnet
+# Public Subnet
+# Private Subnet
 # InternetGateway
 # RouteTable
-# SecurityGroup
+# SecurityGroupEC2
+# SecurityGroupRDS
+# SecurityGroupALB
 # EC2
 # RDS
 # DBSubnetGroup
@@ -25,8 +28,8 @@ Resources:
         - Key: Name
           Value: TEST-VPC
 
-  # Subnet
-  TestSubNet1a:
+  # Public Subnet
+  TestPublicSubNet1a:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: ap-northeast-1a
@@ -34,9 +37,9 @@ Resources:
       CidrBlock: 10.0.0.0/24
       Tags:
         - Key: Name
-          Value: TEST-SubNet1a
+          Value: TEST-Public-SubNet1a
 
-  TestSubNet1c:
+  TestPublicSubNet1c:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: ap-northeast-1c
@@ -44,7 +47,28 @@ Resources:
       CidrBlock: 10.0.1.0/24
       Tags:
         - Key: Name
-          Value: TEST-SubNet1c
+          Value: TEST-Public-SubNet1c
+
+  # Private Subnet
+  TestPrivateSubNet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref TestVPC
+      CidrBlock: 10.0.10.0/24
+      Tags:
+        - Key: Name
+          Value: TEST-Private-SubNet1a
+
+  TestPrivateSubNet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref TestVPC
+      CidrBlock: 10.0.11.0/24
+      Tags:
+        - Key: Name
+          Value: TEST-Private-SubNet1c
 
   # InternetGateway
   TestIGW:
@@ -82,17 +106,17 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref TestRouteTable1
-      SubnetId: !Ref TestSubNet1a
+      SubnetId: !Ref TestPublicSubNet1a
   
   TestSubNetRoutTablAsso2: 
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref TestRouteTable1
-      SubnetId: !Ref TestSubNet1c
+      SubnetId: !Ref TestPublicSubNet1c
       
   # ここまでがVPC
 
-  # SecurityGroup
+  # SecurityGroup for EC2
   TestSecurityGroupEC2:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -100,18 +124,14 @@ Resources:
       GroupDescription: TEST-SecurityGroupEC2
       VpcId: !Ref TestVPC
       SecurityGroupIngress:
-        - IpProtocol: tcp #HTTP
-          CidrIp: 0.0.0.0/0
-          FromPort: 80
-          ToPort: 80
-        - IpProtocol: tcp #SSH 現場だとNG 基本的にOPENにしない
-          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp #SSH
+          CidrIp: 175.177.6.57/32 # 固定IPアドレス
           FromPort: 22
           ToPort: 22
-        - IpProtocol: tcp #RDSあるのでなくてもOK
-          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp #HTTP
           FromPort: 8080
           ToPort: 8080
+          SourceSecurityGroupId: !Ref TestSecurityGroupALB
       SecurityGroupEgress: #アウトバウンド
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -119,6 +139,7 @@ Resources:
         - Key: Name
           Value: TEST-SG-EC2
 
+  # SecurityGroup for RDS
   TestSecurityGroupRDS:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -136,6 +157,22 @@ Resources:
         - Key: Name
           Value: TEST-SG-RDS #13 だと aws-study-rds-sg
 
+  # SecurityGroup for ALB
+  TestSecurityGroupALB:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: TEST-SecurityGroupALB
+      GroupDescription: TEST-SecurityGroupALB
+      VpcId: !Ref TestVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: TEST-SG-ALB
+
   # EC2
   TestEC2Instance: 
     Type: AWS::EC2::Instance
@@ -148,7 +185,7 @@ Resources:
       NetworkInterfaces:   
         - AssociatePublicIpAddress: "true"
           DeviceIndex: "0"
-          SubnetId: !Ref TestSubNet1a  
+          SubnetId: !Ref TestPublicSubNet1a  
           GroupSet:
             - !Ref TestSecurityGroupEC2        
       
@@ -200,9 +237,9 @@ Resources:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: Created from the RDS Management Console #あまり気にしなくていい
-      SubnetIds:
-        - !Ref TestSubNet1a
-        - !Ref TestSubNet1c
+      SubnetIds: # プライベートサブネットを参照するよう変更
+        - !Ref TestPrivateSubNet1a
+        - !Ref TestPrivateSubNet1c
 
   #ELB
   TestELB:
@@ -210,10 +247,10 @@ Resources:
     Properties:
       Name: TEST-ELB
       SecurityGroups:
-        - !Ref TestSecurityGroupEC2
+        - !Ref TestSecurityGroupALB
       Subnets:
-        - !Ref TestSubNet1a
-        - !Ref TestSubNet1c
+        - !Ref TestPublicSubNet1a
+        - !Ref TestPublicSubNet1c
       Tags:
         - Key: Name
           Value: TEST-ELB
