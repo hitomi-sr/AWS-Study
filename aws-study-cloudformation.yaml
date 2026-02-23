@@ -12,6 +12,7 @@ Description: AWS-Study
 # SecurityGroupRDS
 # SecurityGroupALB
 # EC2
+# RDS Secrets Manager
 # RDS
 # DBSubnetGroup
 # ELB
@@ -206,8 +207,20 @@ Resources:
     Type: AWS::EC2::EIP
     Properties:
       InstanceId: !Ref TestEC2Instance
-  
-  # RDS　
+
+  # RDS Secrets Manager
+  RDSSecret: # ここでRDSのパスワードとなるランダム文字列を生成
+    Type: "AWS::SecretsManager::Secret"
+    Properties:
+      Name: "RDSSecret"
+      Description: "RDS password for my RDS instance"
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
+  # RDS
   TestRDS:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -218,8 +231,8 @@ Resources:
       Port: 3306 #デフォ
       StorageType: gp2 #13だとgp3 
       BackupRetentionPeriod: 1 #18:29 保存日数
-      MasterUsername: root #rootがダメなケースはadminとか　アプリで使うUNPWに合わせる
-      MasterUserPassword: rootroot #すぐ捨てるので簡易なもの #簡単すぎると警告
+      MasterUsername: admin
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${RDSSecret}:SecretString:password}}' # Secrets Managerのランダム文字列を間接的に参照
       PreferredBackupWindow: 15:00-16:00
       PreferredMaintenanceWindow: sun:18:00-sun:19:00
       DBName: awsstudy
