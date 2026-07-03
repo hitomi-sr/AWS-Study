@@ -5,6 +5,13 @@
 resource "aws_security_group" "alb" {
   name   = "TEST-SecurityGroupALB"
   vpc_id = aws_vpc.test.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 # 80番許可
@@ -67,4 +74,11 @@ resource "aws_security_group" "ec2" {
 
 resource "aws_security_group" "rds" {
   vpc_id = aws_vpc.test.id
+
+  ingress {
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ec2.id]
+  }
 }

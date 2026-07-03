@@ -31,10 +31,18 @@ resource "aws_lb_target_group" "test" {
   vpc_id   = aws_vpc.test.id
 
   health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    timeout             = 5
+    interval            = 10
+    matcher             = "200"
+
     path     = "/"
-    port     = "traffic-port"
+    port     = "8080"
     protocol = "HTTP"
   }
+
 
   lifecycle {
     create_before_destroy = true

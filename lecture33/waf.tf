@@ -56,8 +56,14 @@ resource "aws_wafv2_web_acl" "test" {
 
 resource "aws_wafv2_web_acl_logging_configuration" "test" {
 
-  resource_arn            = aws_wafv2_web_acl.test.arn
-  log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
+  resource_arn = aws_wafv2_web_acl.test.arn
+  log_destination_configs = [
+    aws_kinesis_firehose_delivery_stream.waf.arn
+  ]
+
+  depends_on = [
+    aws_kinesis_firehose_delivery_stream.waf
+  ]
 }
 
 # -------------------------
@@ -68,4 +74,74 @@ resource "aws_wafv2_web_acl_association" "test" {
 
   resource_arn = aws_lb.test.arn
   web_acl_arn  = aws_wafv2_web_acl.test.arn
+}
+
+# -------------------------
+# S3 Bucket
+# -------------------------
+
+resource "aws_s3_bucket" "waf_log" {
+
+  bucket = "aws-study-waf-log-hitomi" # バケット名
+}
+
+# -------------------------
+# IAM Role for Firehose
+# -------------------------
+
+resource "aws_iam_role" "firehose" {
+
+  name = "firehose-waf-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "firehose.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# -------------------------
+# IAM Policy
+# -------------------------
+
+resource "aws_iam_role_policy" "firehose" {
+
+  name = "firehose-waf-policy"
+  role = aws_iam_role.firehose.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject"
+        ]
+        Resource = "${aws_s3_bucket.waf_log.arn}/*"
+      }
+    ]
+  })
+}
+
+# -------------------------
+# Firehose
+# -------------------------
+
+resource "aws_kinesis_firehose_delivery_stream" "waf" {
+
+  name        = "aws-waf-logs-study"
+  destination = "extended_s3"
+
+  extended_s3_configuration {
+
+    role_arn   = aws_iam_role.firehose.arn
+    bucket_arn = aws_s3_bucket.waf_log.arn
+  }
 }

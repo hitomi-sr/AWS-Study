@@ -1,6 +1,6 @@
 #  Secret
 resource "aws_secretsmanager_secret" "rds" {
-  name = "RDSSecret-260627-01"
+  name = "RDSSecret-260702-01"
 }
 
 #  ランダムパスワード
