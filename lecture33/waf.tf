@@ -1,14 +1,4 @@
 # -------------------------
-# LogGroup
-# -------------------------
-
-resource "aws_cloudwatch_log_group" "waf" {
-
-  name              = "aws-waf-logs-study"
-  retention_in_days = 7
-}
-
-# -------------------------
 # WebACL
 # -------------------------
 
